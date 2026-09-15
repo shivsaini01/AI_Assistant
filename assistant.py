@@ -171,35 +171,15 @@ IMPORTANT RULES:
 19. Do not create a function that is never called.
 20. The final Python code must not contain code fences.
 
-EXAMPLE:
+STRICT GENERATION RULES:
 
-User request:
-make a skill to open signal and obs
-
-Correct behavior:
-launch Signal desktop application
-launch OBS desktop application
-
-Correct code pattern:
-
-from jarvis_tools import launch_app
-
-launch_app("Signal")
-launch_app("obs")
-
-WRONG:
-open_url("https://signal.me/")
-
-because the user requested the Signal application, not the Signal website.
-
-Another example:
-
-User request:
-make a skill to open youtube and chrome
-
-Correct behavior:
-open YouTube website
-launch Chrome desktop application.
+- The USER REQUEST is the only source of truth.
+- Generate actions ONLY when they are explicitly requested by the user.
+- Never add an application, website, URL, or action from your own knowledge.
+- Never copy actions from previous examples or unrelated context.
+- If the user requests only a URL to be opened, generate only open_url() for that URL.
+- If the user requests a desktop application, generate launch_app() only for that explicitly requested application.
+- If the user requests multiple actions, generate exactly those actions and no others.
 
 Generate the skill now.
 """
