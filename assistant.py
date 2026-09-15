@@ -1928,419 +1928,249 @@ def build_command_metadata(
 
 
 # ==================================================
-# MAIN
+# PROCESS USER INPUT
 # ==================================================
 
-def main():
+def process_user_input(user_text):
+    """
+    Process one Jarvis command.
+    Used by both the console and Flask phone interface.
+    Returns a response string for the caller.
+    """
 
-    print("=" * 60)
-    print("JARVIS SMART AI ASSISTANT")
-    print("=" * 60)
+    global pending_skill_creation
 
-    print(
-        "Type 'exit' to quit."
-    )
+    user_text = user_text.strip()
 
-    print()
+    if not user_text:
+        return "Command is empty."
 
-    while True:
+    # ==================================================
+    # EXIT COMMAND
+    # ==================================================
 
-        try:
+    if user_text.lower() in {"exit", "quit", "bye"}:
+        return "Goodbye."
 
-            user_text = input(
-                "You: "
-            ).strip()
+    # ==================================================
+    # GREETING
+    # ==================================================
 
-        except (
-            KeyboardInterrupt,
-            EOFError
-        ):
+    if is_greeting(user_text):
+        assistant_response = "Hey! How can I help?"
 
-            print(
-                "\nJarvis: Goodbye."
-            )
+        remember(
+            user_text,
+            assistant_response,
+            metadata={"type": "greeting"}
+        )
 
-            break
+        return assistant_response
 
-        if not user_text:
-            continue
+    # ==================================================
+    # NAME
+    # ==================================================
 
-        # ------------------------------------------
-        # EXIT
-        # ------------------------------------------
+    if user_text.lower().startswith("my name is "):
+        name = user_text[11:].strip()
 
-        if user_text.lower() in {
-            "exit",
-            "quit",
-            "bye"
-        }:
+        if name:
+            assistant_response = f"Nice to meet you, {name}."
 
-            print(
-                "Jarvis: Goodbye."
-            )
-
-            break
-
-        # ------------------------------------------
-        # GREETING
-        # ------------------------------------------
-
-        if is_greeting(
-            user_text
-        ):
-
-            assistant_response = (
-                "Hey! How can I help?"
-            )
-
-            print(
-                f"Jarvis: {assistant_response}"
+            remember_context(
+                "personal_information",
+                {"name": name}
             )
 
             remember(
                 user_text,
                 assistant_response,
                 metadata={
-                    "type": "greeting"
+                    "type": "personal_information",
+                    "name": name
                 }
             )
 
-            continue
+            return assistant_response
 
-        # ------------------------------------------
-        # NAME
-        # ------------------------------------------
+    # ==================================================
+    # PENDING SKILL NAME
+    # ==================================================
 
-        if user_text.lower().startswith("my name is "):
+    if pending_skill_creation:
 
-            name = user_text[11:].strip()
+        skill_name = user_text.strip()
 
-            if name:
+        skill_request = pending_skill_creation
 
-                assistant_response = f"Nice to meet you, {name}."
+        pending_skill_creation = None
 
-                print(f"Jarvis: {assistant_response}")
+        if skill_name:
 
-                remember_context(
-                    "personal_information",
-                    {
-                        "name": name
-                    }
-                )
-
-                remember(
-                    user_text,
-                    assistant_response,
-                    metadata={
-                        "type": "personal_information",
-                        "name": name
-                    }
-                )
-
-            continue
-
-        # ------------------------------------------
-        # PENDING SKILL NAME
-        # ------------------------------------------
-
-        global pending_skill_creation
-
-        if pending_skill_creation:
-
-            skill_name = user_text.strip()
-
-            skill_request = pending_skill_creation
-
-            pending_skill_creation = None
-
-            if skill_name:
-
-                success = create_skill(
-                    skill_request,
-                    skill_name
-                )
-
-                assistant_response = (
-                    f'Skill "{skill_name}" created successfully.'
-                    if success
-                    else
-                    f'I could not create skill "{skill_name}".'
-                )
-
-                remember(
-                    user_text,
-                    assistant_response,
-                    metadata={
-                        "type": "skill_creation",
-                        "skill": skill_name
-                    }
-                )
-
-            continue
-
-        # ------------------------------------------
-        # SKILL CREATION
-        # ------------------------------------------
-
-        if is_skill_creation_request(
-            user_text
-        ):
-
-            pending_skill_creation = user_text
-
-            print("Jarvis: What would you like to name this skill?")
-
-            continue
-
-        # ------------------------------------------
-        # REMOVE REGISTERED SKILL
-        # ------------------------------------------
-
-        remove_match = re.match(
-            r"^(?:please\s+)?(?:remove|delete)\s+(.+?)(?:\s+skill)?$",
-            user_text.strip(),
-            re.IGNORECASE
-        )
-
-        if remove_match:
-
-            skill_name = remove_match.group(1).strip()
-
-            print(
-                f"Jarvis: 🗑️ Removing skill '{skill_name}'..."
-            )
-
-            success = remove_skill(
+            success = create_skill(
+                skill_request,
                 skill_name
             )
 
-            if success:
-
-                assistant_response = (
-                    f"Skill '{skill_name}' removed successfully."
-                )
-
-                print(
-                    f"Jarvis: ✅ {assistant_response}"
-                )
-
-            else:
-
-                assistant_response = (
-                    f"Skill '{skill_name}' was not found."
-                )
-
-                print(
-                    f"Jarvis: ❌ {assistant_response}"
-                )
-
-            continue
-
-        # ------------------------------------------
-        # REGISTERED SKILL CHECK
-        # ------------------------------------------
-
-        skill_match = find_skill(
-            user_text
-        )
-
-        if skill_match:
-
-            registry = load_registry()
-
-            matched_skill_name = None
-
-            for name, data in registry.items():
-
-                if data == skill_match:
-                    matched_skill_name = name
-                    break
-
-            if matched_skill_name:
-
-                print(
-                    f"Jarvis: ▶ Running skill '{matched_skill_name}'..."
-                )
-
-                success = handle_skill(
-                    matched_skill_name
-                )
-
-                if success:
-                    assistant_response = (
-                        f"Skill '{matched_skill_name}' executed successfully."
-                    )
-                else:
-                    assistant_response = (
-                        f"Skill '{matched_skill_name}' failed."
-                    )
-
-                print(
-                    f"Jarvis: {'✅' if success else '❌'} "
-                    f"{assistant_response}"
-                )
-
-                command_metadata = {
-                    "type": "command",
-                    "intent": "skill",
-                    "skill": matched_skill_name
-                }
-
-                remember_context(
-                    "last_command",
-                    command_metadata
-                )
-
-                remember(
-                    user_text,
-                    assistant_response,
-                    metadata=command_metadata
-                )
-
-                continue
-
-        # ------------------------------------------
-        # GET RECENT CONVERSATION CONTEXT
-        # ------------------------------------------
-
-        conversation_context = (
-            build_context_with_metadata(
-                MAX_CONTEXT_TURNS
-            )
-        )
-
-        # ------------------------------------------
-        # GET LAST STRUCTURED COMMAND
-        # ------------------------------------------
-
-        last_command = get_last_command_context()
-
-        if last_command:
-
-            command_lines = [
-                "",
-                "==================================================",
-                "LATEST STRUCTURED COMMAND STATE",
-                "=================================================="
-            ]
-
-            for key, value in last_command.items():
-
-                if key == "actions":
-                    continue
-
-                command_lines.append(
-                    f"{key}: {value}"
-                )
-
-            conversation_context += (
-                "\n".join(
-                    command_lines
-                )
-            )
-
-        # ------------------------------------------
-        # TWO-STAGE INTENT
-        # ------------------------------------------
-
-        result = parse_user_intent(
-            user_text,
-            conversation_context
-        )
-
-        # ------------------------------------------
-        # NO INTENT RESULT
-        # ------------------------------------------
-
-        if not result:
-
-            answer = ask_ai(
-                user_text,
-                conversation_context
-            )
-
-            print(
-                f"Jarvis: {answer}"
+            assistant_response = (
+                f'Skill "{skill_name}" created successfully.'
+                if success
+                else f'I could not create skill "{skill_name}".'
             )
 
             remember(
                 user_text,
-                answer,
+                assistant_response,
                 metadata={
-                    "type": "conversation"
+                    "type": "skill_creation",
+                    "skill": skill_name
                 }
             )
 
-            continue
+            return assistant_response
 
-        # ------------------------------------------
-        # NORMAL CONVERSATION
-        # ------------------------------------------
+    # ==================================================
+    # SKILL CREATION
+    # ==================================================
 
-        if result.get(
-            "mode"
-        ) == "conversation":
+    if is_skill_creation_request(user_text):
 
-            answer = ask_ai(
-                user_text,
-                conversation_context
+        pending_skill_creation = user_text
+
+        return "What would you like to name this skill?"
+
+    # ==================================================
+    # REMOVE REGISTERED SKILL
+    # ==================================================
+
+    remove_match = re.match(
+        r"^(?:please\s+)?(?:remove|delete)\s+(.+?)(?:\s+skill)?$",
+        user_text.strip(),
+        re.IGNORECASE
+    )
+
+    if remove_match:
+
+        skill_name = remove_match.group(1).strip()
+
+        success = remove_skill(skill_name)
+
+        if success:
+            assistant_response = (
+                f"Skill '{skill_name}' removed successfully."
+            )
+        else:
+            assistant_response = (
+                f"Skill '{skill_name}' was not found."
             )
 
-            print(
-                f"Jarvis: {answer}"
+        return assistant_response
+
+    # ==================================================
+    # REGISTERED SKILL CHECK
+    # ==================================================
+
+    skill_match = find_skill(user_text)
+
+    if skill_match:
+
+        registry = load_registry()
+
+        matched_skill_name = None
+
+        for name, data in registry.items():
+
+            if data == skill_match:
+                matched_skill_name = name
+                break
+
+        if matched_skill_name:
+
+            success = handle_skill(
+                matched_skill_name
+            )
+
+            assistant_response = (
+                f"Skill '{matched_skill_name}' executed successfully."
+                if success
+                else f"Skill '{matched_skill_name}' failed."
+            )
+
+            command_metadata = {
+                "type": "command",
+                "intent": "skill",
+                "skill": matched_skill_name
+            }
+
+            remember_context(
+                "last_command",
+                command_metadata
             )
 
             remember(
                 user_text,
-                answer,
-                metadata={
-                    "type": "conversation"
-                }
+                assistant_response,
+                metadata=command_metadata
             )
 
-            continue
+            return assistant_response
 
-        # ------------------------------------------
-        # COMMAND
-        # ------------------------------------------
+    # ==================================================
+    # GET RECENT CONVERSATION CONTEXT
+    # ==================================================
 
-        if result.get(
-            "mode"
-        ) == "command":
+    conversation_context = (
+        build_context_with_metadata(
+            MAX_CONTEXT_TURNS
+        )
+    )
 
-            handled = process_actions(
-                result
-            )
+    # ==================================================
+    # GET LAST STRUCTURED COMMAND
+    # ==================================================
 
-            if handled:
+    last_command = get_last_command_context()
 
-                command_metadata = build_command_metadata(
-                    result
-                )
+    if last_command:
 
-                remember_context(
-                    "last_command",
-                    command_metadata
-                )
+        command_lines = [
+            "",
+            "==================================================",
+            "LATEST STRUCTURED COMMAND STATE",
+            "=================================================="
+        ]
 
-                remember(
-                    user_text,
-                    "Command executed.",
-                    metadata=command_metadata
-                )
+        for key, value in last_command.items():
 
+            if key == "actions":
                 continue
-        # ------------------------------------------
-        # FALLBACK
-        # ------------------------------------------
+
+            command_lines.append(
+                f"{key}: {value}"
+            )
+
+        conversation_context += "\n".join(
+            command_lines
+        )
+
+    # ==================================================
+    # TWO-STAGE INTENT
+    # ==================================================
+
+    result = parse_user_intent(
+        user_text,
+        conversation_context
+    )
+
+    # ==================================================
+    # NO INTENT RESULT
+    # ==================================================
+
+    if not result:
 
         answer = ask_ai(
             user_text,
             conversation_context
-        )
-
-        print(
-            f"Jarvis: {answer}"
         )
 
         remember(
@@ -2349,6 +2179,116 @@ def main():
             metadata={
                 "type": "conversation"
             }
+        )
+
+        return answer
+
+    # ==================================================
+    # NORMAL CONVERSATION
+    # ==================================================
+
+    if result.get("mode") == "conversation":
+
+        answer = ask_ai(
+            user_text,
+            conversation_context
+        )
+
+        remember(
+            user_text,
+            answer,
+            metadata={
+                "type": "conversation"
+            }
+        )
+
+        return answer
+
+    # ==================================================
+    # COMMAND
+    # ==================================================
+
+    if result.get("mode") == "command":
+
+        handled = process_actions(
+            result
+        )
+
+        if handled:
+
+            command_metadata = build_command_metadata(
+                result
+            )
+
+            remember_context(
+                "last_command",
+                command_metadata
+            )
+
+            remember(
+                user_text,
+                "Command executed.",
+                metadata=command_metadata
+            )
+
+            return "Command executed successfully."
+
+    # ==================================================
+    # FALLBACK
+    # ==================================================
+
+    answer = ask_ai(
+        user_text,
+        conversation_context
+    )
+
+    remember(
+        user_text,
+        answer,
+        metadata={
+            "type": "conversation"
+        }
+    )
+
+    return answer
+
+
+# ==================================================
+# MAIN
+# ==================================================
+
+def main():
+
+    print("=" * 60)
+    print("JARVIS SMART AI ASSISTANT")
+    print("=" * 60)
+    print("Type 'exit' to quit.")
+    print()
+
+    while True:
+
+        try:
+            user_text = input("You: ").strip()
+
+        except (KeyboardInterrupt, EOFError):
+
+            print("\nJarvis: Goodbye.")
+            break
+
+        if not user_text:
+            continue
+
+        response = process_user_input(
+            user_text
+        )
+
+        if response == "Goodbye.":
+
+            print("Jarvis: Goodbye.")
+            break
+
+        print(
+            f"Jarvis: {response}"
         )
 
 
