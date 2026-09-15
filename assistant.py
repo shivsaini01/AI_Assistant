@@ -130,7 +130,7 @@ def ask_skill_ai(user_request, skill_name):
     prompt = f"""
 You are Jarvis's skill-generation engine.
 
-Create a complete Python skill based on the user's request.
+Create a complete Python skill based ONLY on the user's request.
 
 SKILL NAME:
 {skill_name}
@@ -140,13 +140,25 @@ USER REQUEST:
 
 AVAILABLE JARVIS TOOLS:
 
-from jarvis_tools import launch_app, open_url
-
 Desktop application:
+from jarvis_tools import launch_app
 launch_app("application name")
 
 Website:
+from jarvis_tools import open_url
 open_url("https://example.com")
+
+ACTION INTERPRETATION:
+
+- "launch", "start", or "run" an application means use launch_app().
+- "open" a website, webpage, URL, or domain means use open_url().
+- If the user explicitly says "open an application", use launch_app() ONLY when the target is clearly a desktop application.
+- Do not assume that a name is a desktop application just because it can also have a website.
+- For a target that can be both a desktop application and a website, follow the user's wording and intended action.
+- A URL or domain such as example.com must use open_url().
+- Never convert a website request into launch_app().
+- Never convert an application request into open_url().
+- Generate exactly the requested actions and no additional actions.
 
 IMPORTANT RULES:
 
@@ -154,32 +166,58 @@ IMPORTANT RULES:
 2. Do NOT return markdown.
 3. Do NOT return JSON.
 4. Do NOT return explanations.
-5. The generated code must be complete and runnable.
-6. Import Jarvis tools at the beginning.
-7. If the user requests a desktop application, use launch_app().
-8. If the user requests multiple applications, launch EVERY requested application.
-9. Do NOT replace a desktop application with its website.
-10. Use open_url() ONLY when the user explicitly requests a website/webpage.
-11. Do NOT use webbrowser.
-12. Do NOT use subprocess.
-13. Do NOT use PowerShell.
-14. Do NOT ask the user for input.
-15. Do NOT invent additional applications or websites.
-16. Perform ALL actions requested by the user.
-17. Preserve the exact meaning of the user's request.
-18. The skill must execute automatically when the file is run.
-19. Do not create a function that is never called.
-20. The final Python code must not contain code fences.
+5. The generated code must be complete and directly runnable.
+6. Import every Jarvis tool used by the generated code.
+7. Perform ALL actions requested by the user.
+8. The generated code must contain ZERO unrequested actions.
+9. Do NOT copy actions from the instructions.
+10. Preserve the exact meaning of the user's request.
+11. Execute actions automatically when the file is run.
+12. Do not create unused functions.
+13. The final Python code must not contain code fences.
 
-STRICT GENERATION RULES:
+IMPORTANT EXAMPLES:
 
-- The USER REQUEST is the only source of truth.
-- Generate actions ONLY when they are explicitly requested by the user.
-- Never add an application, website, URL, or action from your own knowledge.
-- Never copy actions from previous examples or unrelated context.
-- If the user requests only a URL to be opened, generate only open_url() for that URL.
-- If the user requests a desktop application, generate launch_app() only for that explicitly requested application.
-- If the user requests multiple actions, generate exactly those actions and no others.
+User request:
+make a skill to open https://example.com
+
+Correct code:
+from jarvis_tools import open_url
+
+open_url("https://example.com")
+
+User request:
+make a skill to launch signal
+
+Correct code:
+from jarvis_tools import launch_app
+
+launch_app("signal")
+
+User request:
+make a skill to open youtube and launch signal
+
+Correct code:
+from jarvis_tools import open_url, launch_app
+
+open_url("https://youtube.com")
+launch_app("signal")
+
+FINAL REQUIREMENT:
+
+The USER REQUEST is the only source of actions.
+Do not add anything that the user did not request.
+
+A generated skill must contain no actions other than actions directly supported by the USER REQUEST.
+
+Before generating code:
+1. Identify every requested action.
+2. Create exactly one corresponding code action for each requested action.
+3. Compare the final code against the USER REQUEST.
+4. Remove any action that was not explicitly requested.
+
+Never infer, suggest, or add a companion application.
+Never add ChatGPT, OBS, Signal, Chrome, Brave, YouTube, or any other application unless the user explicitly requests it.
 
 Generate the skill now.
 """
@@ -338,117 +376,6 @@ def create_skill(user_request, skill_name):
     if not registered:
 
         try:
-            if os.path.exists(skill_path):
-                os.remove(skill_path)
-
-        except Exception:
-            pass
-
-        print(
-            f'Jarvis: ❌ Could not register '
-            f'skill "{skill_name}".'
-        )
-
-        return False
-
-    print(
-        f'Jarvis: ✅ Skill "{skill_name}" '
-        "created successfully."
-    )
-
-    return True
-
-    # ------------------------------------------
-    # CHECK EXISTING SKILL
-    # ------------------------------------------
-
-    existing_skill = find_skill(
-        skill_name
-    )
-
-    if existing_skill:
-
-        print(
-            f'Jarvis: ⚠️ Skill "{skill_name}" '
-            "already exists. It was not modified."
-        )
-
-        return False
-
-    # ------------------------------------------
-    # CHECK EXISTING FILE
-    # ------------------------------------------
-
-    skill_path = os.path.join(
-        SAFE_FOLDER,
-        filename
-    )
-
-    if os.path.exists(skill_path):
-
-        print(
-            f'Jarvis: ⚠️ Skill file "{filename}" '
-            "already exists. It was not modified."
-        )
-
-        return False
-
-    print(
-        "Jarvis: 🛠️ Creating skill..."
-    )
-
-    # ------------------------------------------
-    # GENERATE PYTHON CODE
-    # ------------------------------------------
-
-    content = ask_skill_ai(
-        user_request,
-        skill_name
-    )
-
-    if not content:
-
-        print(
-            "Jarvis: ❌ I couldn't generate the skill."
-        )
-
-        return False
-
-    # ------------------------------------------
-    # CREATE FILE
-    # ------------------------------------------
-
-    success, result = create_file(
-        filename,
-        content
-    )
-
-    if not success:
-
-        print(
-            f"Jarvis: ❌ {result}"
-        )
-
-        return False
-
-    # ------------------------------------------
-    # REGISTER SKILL
-    # ------------------------------------------
-
-    registered = register_skill(
-        skill_name=skill_name,
-        filename=filename,
-        triggers=[],
-        description=(
-            f"Skill created from request: "
-            f"{user_request}"
-        )
-    )
-
-    if not registered:
-
-        try:
-
             if os.path.exists(skill_path):
                 os.remove(skill_path)
 
