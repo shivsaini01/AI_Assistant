@@ -1,7 +1,12 @@
 import json
 import os
+import re
+import subprocess
 
-from jarvis_tools import launch_app, open_url
+from jarvis_tools import (
+    launch_app,
+    open_url
+)
 
 
 # ==================================================
@@ -36,14 +41,17 @@ def ensure_folders():
 
 
 # ==================================================
-# SKILL REGISTRY
+# LOAD REGISTRY
 # ==================================================
 
 def load_registry():
 
     ensure_folders()
 
-    if not os.path.exists(REGISTRY_FILE):
+    if not os.path.exists(
+        REGISTRY_FILE
+    ):
+
         return {}
 
     try:
@@ -54,19 +62,33 @@ def load_registry():
             encoding="utf-8"
         ) as file:
 
-            data = json.load(file)
+            data = json.load(
+                file
+            )
 
-            if isinstance(data, dict):
-                return data
+        if isinstance(
+            data,
+            dict
+        ):
+
+            return data
 
     except Exception as e:
 
-        print(f"Registry error: {e}")
+        print(
+            f"Registry error: {e}"
+        )
 
     return {}
 
 
-def save_registry(registry):
+# ==================================================
+# SAVE REGISTRY
+# ==================================================
+
+def save_registry(
+    registry
+):
 
     ensure_folders()
 
@@ -88,7 +110,9 @@ def save_registry(registry):
 
     except Exception as e:
 
-        print(f"Failed to save registry: {e}")
+        print(
+            f"Failed to save registry: {e}"
+        )
 
         return False
 
@@ -97,9 +121,12 @@ def save_registry(registry):
 # CLEAN FILENAME
 # ==================================================
 
-def clean_filename(filename):
+def clean_filename(
+    filename
+):
 
     if not filename:
+
         return None
 
     filename = os.path.basename(
@@ -107,61 +134,106 @@ def clean_filename(filename):
     ).strip()
 
     if not filename:
+
         return None
 
     if ".." in filename:
+
         return None
 
     return filename
 
 
 # ==================================================
-# CREATE FILE
+# CREATE FILE SAFELY
 # ==================================================
 
-def create_file(filename, content):
+def create_file(
+    filename,
+    content
+):
 
     ensure_folders()
 
-    filename = clean_filename(filename)
+    filename = clean_filename(
+        filename
+    )
 
     if not filename:
-        return False, "Invalid filename."
+
+        return (
+            False,
+            "Invalid filename."
+        )
 
     file_path = os.path.join(
         CREATE_FOLDER,
         filename
     )
 
+    # ----------------------------------------------
+    # NEVER OVERWRITE EXISTING FILE
+    # ----------------------------------------------
+
+    if os.path.exists(file_path):
+
+        return (
+            False,
+            f"File already exists: {filename}"
+        )
+
     try:
 
         with open(
             file_path,
-            "w",
+            "x",
             encoding="utf-8"
         ) as file:
 
-            file.write(content)
+            file.write(
+                content
+            )
 
-        return True, file_path
+        return (
+            True,
+            file_path
+        )
+
+    except FileExistsError:
+
+        return (
+            False,
+            f"File already exists: {filename}"
+        )
 
     except Exception as e:
 
-        return False, f"Failed to create file: {e}"
+        return (
+            False,
+            f"Failed to create file: {e}"
+        )
 
 
 # ==================================================
 # GET SKILL PATH
 # ==================================================
 
-def get_skill_path(filename):
+def get_skill_path(
+    filename
+):
 
-    filename = clean_filename(filename)
+    filename = clean_filename(
+        filename
+    )
 
     if not filename:
+
         return None
 
-    if not filename.lower().endswith(".py"):
+    if not filename.lower().endswith(
+        ".py"
+    ):
+
         filename += ".py"
 
     return os.path.join(
@@ -183,7 +255,20 @@ def register_skill(
 
     ensure_folders()
 
+    if not skill_name:
+
+        return False
+
+    skill_name = str(
+        skill_name
+    ).strip()
+
+    if not skill_name:
+
+        return False
+
     if triggers is None:
+
         triggers = []
 
     filename = clean_filename(filename)
@@ -194,7 +279,44 @@ def register_skill(
     if not filename.lower().endswith(".py"):
         filename += ".py"
 
+    # ------------------------------------------
+    # VERIFY SKILL FILE EXISTS
+    # ------------------------------------------
+
+    skill_path = get_skill_path(filename)
+
+    if not os.path.isfile(skill_path):
+        return False
+
     registry = load_registry()
+
+    # ----------------------------------------------
+    # NEVER OVERWRITE EXISTING SKILL
+    # ----------------------------------------------
+
+    for existing_name in registry:
+
+        if existing_name.lower() == skill_name.lower():
+
+            return False
+
+    # ----------------------------------------------
+    # NEVER REGISTER SAME FILE TWICE
+    # ----------------------------------------------
+
+    for existing_data in registry.values():
+
+        existing_filename = existing_data.get(
+            "filename",
+            ""
+        )
+
+        if (
+            existing_filename.lower()
+            == filename.lower()
+        ):
+
+            return False
 
     registry[skill_name] = {
         "filename": filename,
@@ -202,42 +324,109 @@ def register_skill(
         "description": description
     }
 
-    return save_registry(registry)
-
-
-# ==================================================
-# FIND SKILL
-# ==================================================
+    return save_registry(
+        registry
+    )
 
 def find_skill(text):
 
     if not text:
         return None
 
-    text_lower = text.lower().strip()
+    text_lower = str(
+        text
+    ).lower().strip()
 
     registry = load_registry()
 
+    # ------------------------------------------
+    # EXECUTION ACTIONS
+    # ------------------------------------------
+
+    execution_actions = {
+        "open",
+        "run",
+        "start",
+        "launch",
+        "activate",
+        "execute",
+        "use",
+        "enable",
+    }
+
+    # ------------------------------------------
+    # REMOVE / NON-EXECUTION ACTIONS
+    # ------------------------------------------
+
+    non_execution_actions = {
+        "remove",
+        "delete",
+        "update",
+        "edit",
+        "modify",
+        "disable",
+        "stop",
+        "close",
+        "about",
+        "what",
+        "which",
+        "tell",
+        "show",
+        "list",
+    }
+
+    words = text_lower.split()
+
+    # ------------------------------------------
+    # EXACT SKILL NAME
+    # ------------------------------------------
+
     for skill_name, skill_data in registry.items():
 
-        # Check skill name
-        if skill_name.lower() == text_lower:
-            return skill_data
-
-        # Check filename
         filename = skill_data.get(
             "filename",
             ""
         )
 
+        skill_path = get_skill_path(
+            filename
+        )
+
+        # Ignore stale registry entries
+        if not skill_path or not os.path.isfile(
+            skill_path
+        ):
+            continue
+
+        skill_name_lower = (
+            skill_name.lower().strip()
+        )
+
+        if not skill_name_lower:
+            continue
+
+        # --------------------------------------
+        # EXACT NAME
+        # --------------------------------------
+
+        if skill_name_lower == text_lower:
+            return skill_data
+
+        # --------------------------------------
+        # EXACT FILENAME
+        # --------------------------------------
+
         filename_without_ext = os.path.splitext(
             filename
-        )[0].lower()
+        )[0].lower().strip()
 
         if filename_without_ext == text_lower:
             return skill_data
 
-        # Check triggers
+        # --------------------------------------
+        # EXACT TRIGGER
+        # --------------------------------------
+
         triggers = skill_data.get(
             "triggers",
             []
@@ -245,19 +434,74 @@ def find_skill(text):
 
         for trigger in triggers:
 
-            if trigger.lower() in text_lower:
+            if not isinstance(
+                trigger,
+                str
+            ):
+                continue
+
+            if trigger.lower().strip() == text_lower:
                 return skill_data
 
-    return None
+        # --------------------------------------
+        # SKILL NAME INSIDE COMMAND
+        # --------------------------------------
 
+        pattern = (
+            r"\b"
+            + re.escape(skill_name_lower)
+            + r"\b"
+        )
+
+        if not re.search(
+            pattern,
+            text_lower
+        ):
+            continue
+
+        # --------------------------------------
+        # CHECK COMMAND INTENT
+        # --------------------------------------
+
+        first_word = words[0] if words else ""
+
+        # Explicit non-execution command
+        if first_word in non_execution_actions:
+            continue
+
+        # Execution command
+        if first_word in execution_actions:
+            return skill_data
+
+        # "turn on <skill>"
+        if (
+            len(words) >= 3
+            and words[0] == "turn"
+            and words[1] == "on"
+        ):
+            return skill_data
+
+        # "please open <skill>"
+        if (
+            len(words) >= 2
+            and words[0] == "please"
+            and words[1] in execution_actions
+        ):
+            return skill_data
+
+    return None
 
 # ==================================================
 # RUN SKILL
 # ==================================================
 
-def run_skill(skill_name):
+def run_skill(
+    skill_name
+):
 
-    skill = find_skill(skill_name)
+    skill = find_skill(
+        skill_name
+    )
 
     if not skill:
 
@@ -277,11 +521,15 @@ def run_skill(skill_name):
 
     if not skill_path:
 
-        print("Invalid skill path.")
+        print(
+            "Invalid skill path."
+        )
 
         return False
 
-    if not os.path.exists(skill_path):
+    if not os.path.isfile(
+        skill_path
+    ):
 
         print(
             f"Skill file not found: {filename}"
@@ -291,30 +539,57 @@ def run_skill(skill_name):
 
     try:
 
-        # Import and execute the registered
-        # Python skill.
-        import subprocess
+        # ------------------------------------------
+        # ALLOW SKILL TO IMPORT JARVIS MODULES
+        # ------------------------------------------
+
+        env = os.environ.copy()
+
+        existing_pythonpath = env.get(
+            "PYTHONPATH",
+            ""
+        )
+
+        if existing_pythonpath:
+
+            env["PYTHONPATH"] = (
+                BASE_DIR
+                + os.pathsep
+                + existing_pythonpath
+            )
+
+        else:
+
+            env["PYTHONPATH"] = BASE_DIR
+
+        # ------------------------------------------
+        # RUN SKILL
+        # ------------------------------------------
 
         result = subprocess.run(
             [
                 "python",
                 skill_path
             ],
-            cwd=SKILLS_FOLDER,
+            cwd=BASE_DIR,
+            env=env,
             capture_output=True,
             text=True
         )
 
         if result.stdout:
-            print(result.stdout.strip())
+
+            print(
+                result.stdout.strip()
+            )
 
         if result.stderr:
-            print(result.stderr.strip())
 
-        if result.returncode == 0:
-            return True
+            print(
+                result.stderr.strip()
+            )
 
-        return False
+        return result.returncode == 0
 
     except Exception as e:
 
@@ -329,15 +604,18 @@ def run_skill(skill_name):
 # EXECUTE APPROVED COMMAND
 # ==================================================
 
-def execute_command(command):
+def execute_command(
+    command
+):
 
     if not command:
+
         return False
 
     command = command.strip()
 
     # ----------------------------------------------
-    # OPEN BRAVE
+    # BRAVE
     # ----------------------------------------------
 
     if command == "open_brave":
@@ -346,12 +624,14 @@ def execute_command(command):
             "brave"
         )
 
-        print(message)
+        print(
+            message
+        )
 
         return success
 
     # ----------------------------------------------
-    # OPEN OBS
+    # OBS
     # ----------------------------------------------
 
     if command == "open_obs":
@@ -360,23 +640,25 @@ def execute_command(command):
             "obs"
         )
 
-        print(message)
+        print(
+            message
+        )
 
         return success
 
     # ----------------------------------------------
-    # OPEN URL
+    # URL
     # ----------------------------------------------
 
-    if command.startswith("open_url:"):
+    if command.startswith(
+        "open_url:"
+    ):
 
         url = command[
-            len("open_url:"):
+            len("open_url:")
         ].strip()
 
         if not url:
-
-            print("URL is empty.")
 
             return False
 
@@ -384,7 +666,9 @@ def execute_command(command):
             url
         )
 
-        print(message)
+        print(
+            message
+        )
 
         return success
 
@@ -392,15 +676,15 @@ def execute_command(command):
     # REGISTERED SKILL
     # ----------------------------------------------
 
-    skill = find_skill(command)
+    skill = find_skill(
+        command
+    )
 
     if skill:
 
-        return run_skill(command)
-
-    # ----------------------------------------------
-    # UNKNOWN COMMAND
-    # ----------------------------------------------
+        return run_skill(
+            command
+        )
 
     print(
         f"Unknown command: {command}"
@@ -413,31 +697,94 @@ def execute_command(command):
 # LIST SKILLS
 # ==================================================
 
-def list_skills():
+def load_registry():
 
-    registry = load_registry()
+    ensure_folders()
 
-    if not registry:
+    if not os.path.exists(REGISTRY_FILE):
+        return {}
 
-        print("No skills registered.")
+    try:
 
-        return []
+        with open(
+            REGISTRY_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
 
-    for name, data in registry.items():
+            registry = json.load(file)
 
-        print(
-            f"- {name}: "
-            f"{data.get('filename', '')}"
-        )
+        if not isinstance(registry, dict):
+            return {}
 
-    return registry
+        # ------------------------------------------
+        # REMOVE STALE SKILLS
+        # ------------------------------------------
 
+        cleaned_registry = {}
+
+        changed = False
+
+        for skill_name, skill_data in registry.items():
+
+            if not isinstance(skill_data, dict):
+                changed = True
+                continue
+
+            filename = skill_data.get(
+                "filename",
+                ""
+            )
+
+            skill_path = get_skill_path(
+                filename
+            )
+
+            # File no longer exists
+            if not skill_path or not os.path.isfile(
+                skill_path
+            ):
+                changed = True
+                continue
+
+            cleaned_registry[
+                skill_name
+            ] = skill_data
+
+        # ------------------------------------------
+        # SAVE CLEANED REGISTRY
+        # ------------------------------------------
+
+        if changed:
+
+            with open(
+                REGISTRY_FILE,
+                "w",
+                encoding="utf-8"
+            ) as file:
+
+                json.dump(
+                    cleaned_registry,
+                    file,
+                    indent=4
+                )
+
+        return cleaned_registry
+
+    except (
+        json.JSONDecodeError,
+        OSError
+    ):
+
+        return {}
 
 # ==================================================
 # REMOVE SKILL
 # ==================================================
 
-def remove_skill(skill_name):
+def remove_skill(
+    skill_name
+):
 
     registry = load_registry()
 
@@ -458,10 +805,13 @@ def remove_skill(skill_name):
     for name, data in registry.items():
 
         if data == skill:
+
             skill_to_remove = name
+
             break
 
     if not skill_to_remove:
+
         return False
 
     filename = skill.get(
@@ -472,17 +822,27 @@ def remove_skill(skill_name):
         filename
     )
 
-    # Remove registry entry
-    del registry[skill_to_remove]
+    del registry[
+        skill_to_remove
+    ]
 
-    save_registry(registry)
+    save_registry(
+        registry
+    )
 
-    # Remove Python file
-    if skill_path and os.path.exists(skill_path):
+    if (
+        skill_path
+        and
+        os.path.exists(
+            skill_path
+        )
+    ):
 
         try:
 
-            os.remove(skill_path)
+            os.remove(
+                skill_path
+            )
 
         except Exception as e:
 
@@ -503,29 +863,14 @@ def remove_skill(skill_name):
 
 if __name__ == "__main__":
 
-    print("=" * 50)
+    print("=" * 60)
     print("JARVIS COMMANDS TEST")
-    print("=" * 50)
-
+    print("=" * 60)
     print()
 
-    print("Testing OBS...")
-
-    execute_command(
-        "open_obs"
+    print(
+        "Testing Signal..."
     )
-
-    print()
-
-    print("Testing Brave...")
-
-    execute_command(
-        "open_brave"
-    )
-
-    print()
-
-    print("Testing YouTube...")
 
     execute_command(
         "open_url:https://www.youtube.com"
@@ -533,4 +878,4 @@ if __name__ == "__main__":
 
     print()
 
-    print("=" * 50)
+    print("=" * 60)

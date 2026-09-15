@@ -10,27 +10,37 @@ from app_detector import find_app
 # ==================================================
 
 DETACHED_PROCESS = 0x00000008
+
 CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
 
 
 # ==================================================
-# JARVIS SAFE TOOLS
+# LAUNCH APPLICATION
 # ==================================================
 
-
-def launch_app(app_name):
+def launch_app(
+    app_name
+):
     """
     Dynamically find and launch a Windows application.
 
-    The launched application is detached from the
-    Jarvis PowerShell console so its internal logs
-    do not appear in the Jarvis interface.
+    Application output is detached from Jarvis's
+    PowerShell console.
     """
 
-    path = find_app(app_name)
+    if not app_name:
+
+        return (
+            False,
+            "Application name is empty."
+        )
+
+    path = find_app(
+        app_name
+    )
 
     if not path:
+
         return (
             False,
             f"{app_name.title()} was not found on this computer."
@@ -39,7 +49,7 @@ def launch_app(app_name):
     try:
 
         # ------------------------------------------
-        # WINDOWS SHORTCUT (.lnk / .url)
+        # Windows shortcut
         # ------------------------------------------
 
         if path.lower().endswith(
@@ -57,7 +67,6 @@ def launch_app(app_name):
                 creationflags=(
                     DETACHED_PROCESS
                     | CREATE_NEW_PROCESS_GROUP
-                    | CREATE_NO_WINDOW
                 ),
                 close_fds=True
             )
@@ -68,10 +77,12 @@ def launch_app(app_name):
             )
 
         # ------------------------------------------
-        # EXECUTABLE (.exe)
+        # EXE
         # ------------------------------------------
 
-        if path.lower().endswith(".exe"):
+        if path.lower().endswith(
+            ".exe"
+        ):
 
             working_dir = os.path.dirname(
                 path
@@ -86,7 +97,6 @@ def launch_app(app_name):
                 creationflags=(
                     DETACHED_PROCESS
                     | CREATE_NEW_PROCESS_GROUP
-                    | CREATE_NO_WINDOW
                 ),
                 close_fds=True
             )
@@ -95,10 +105,6 @@ def launch_app(app_name):
                 True,
                 f"{app_name.title()} launched successfully."
             )
-
-        # ------------------------------------------
-        # UNSUPPORTED FILE
-        # ------------------------------------------
 
         return (
             False,
@@ -117,13 +123,15 @@ def launch_app(app_name):
 # OPEN URL
 # ==================================================
 
-
-def open_url(url):
+def open_url(
+    url
+):
     """
-    Open a URL using the default browser.
+    Open an HTTP/HTTPS URL.
     """
 
     if not url:
+
         return (
             False,
             "No URL was provided."
@@ -131,7 +139,9 @@ def open_url(url):
 
     try:
 
-        webbrowser.open(url)
+        webbrowser.open(
+            url
+        )
 
         return (
             True,
@@ -150,7 +160,6 @@ def open_url(url):
 # TEST
 # ==================================================
 
-
 if __name__ == "__main__":
 
     print("=" * 60)
@@ -158,40 +167,60 @@ if __name__ == "__main__":
     print("=" * 60)
     print()
 
-    print("Testing Signal...")
+    print(
+        "Testing Signal..."
+    )
 
     success, message = launch_app(
         "signal"
     )
 
-    print(message)
+    print(
+        message
+    )
+
     print()
 
-    print("Testing Discord...")
+    print(
+        "Testing Discord..."
+    )
 
     success, message = launch_app(
         "discord"
     )
 
-    print(message)
+    print(
+        message
+    )
+
     print()
 
-    print("Testing VS Code...")
+    print(
+        "Testing VS Code..."
+    )
 
     success, message = launch_app(
         "vscode"
     )
 
-    print(message)
+    print(
+        message
+    )
+
     print()
 
-    print("Testing YouTube...")
+    print(
+        "Testing YouTube..."
+    )
 
     success, message = open_url(
         "https://www.youtube.com"
     )
 
-    print(message)
+    print(
+        message
+    )
+
     print()
 
     print("=" * 60)

@@ -320,6 +320,10 @@ def search_program_files(app_name):
                         "system32",
                         "node_modules",
                         "__pycache__",
+                        "venv",
+                        ".venv",
+                        "site-packages",
+                        "python",
                     }
                 ]
 
