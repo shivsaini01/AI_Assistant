@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Jarvis</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: #111;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+        }
+
+        .jarvis-container {
+            width: 100%;
+            max-width: 700px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 18px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .chat {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            max-width: 85%;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .jarvis-message {
+            background: #222;
+            margin-right: auto;
+        }
+
+        .user-message {
+            background: #333;
+            margin-left: auto;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            border-top: 1px solid #333;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 13px;
+            border: 1px solid #444;
+            border-radius: 10px;
+            background: #1b1b1b;
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .input-area button {
+            padding: 13px 18px;
+            border: none;
+            border-radius: 10px;
+            background: #fff;
+            color: #111;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .input-area button:active {
+            transform: scale(0.97);
+        }
+
+        @media (max-width: 600px) {
+            .header {
+                font-size: 21px;
+            }
+
+            .message {
+                max-width: 90%;
+            }
+
+            .input-area button {
+                padding: 13px 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="jarvis-container">
+
+    <div class="header">
+        JARVIS
+    </div>
+
+    <div class="chat" id="chat">
+
+        <div class="message jarvis-message">
+            Jarvis: Ready.
+        </div>
+
+    </div>
+
+    <div class="input-area">
+
+        <input
+            id="commandInput"
+            type="text"
+            placeholder="Type a command..."
+            autocomplete="off"
+        >
+
+        <button onclick="sendMessage()">
+            SEND
+        </button>
+
+    </div>
+
+</div>
+
+<script>
+
+    const input = document.getElementById("commandInput");
+    const chat = document.getElementById("chat");
+
+    function addMessage(text, type) {
+
+        const message = document.createElement("div");
+
+        message.className =
+            "message " +
+            (type === "user"
+                ? "user-message"
+                : "jarvis-message");
+
+        message.textContent = text;
+
+        chat.appendChild(message);
+
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+
+    async function sendMessage() {
+
+    const text = input.value.trim();
+
+    if (!text) {
+        return;
+    }
+
+    addMessage(
+        "You: " + text,
+        "user"
+    );
+
+    input.value = "";
+
+    try {
+
+        const response = await fetch(
+            "/command",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify({
+                    command: text
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        addMessage(
+            "Jarvis: " + data.message,
+            "jarvis"
+        );
+
+    } catch (error) {
+
+        addMessage(
+            "Jarvis: Could not connect to server.",
+            "jarvis"
+        );
+    }
+}
+
+</script>
+
+</body>
+</html>
