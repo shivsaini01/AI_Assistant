@@ -275,26 +275,53 @@ def resolve_search_roots(
         )
 
         folder_map = {
-            "desktop": profile / "Desktop",
-            "downloads": profile / "Downloads",
-            "documents": profile / "Documents",
-            "pictures": profile / "Pictures",
-            "videos": profile / "Videos",
-            "music": profile / "Music",
-            "ai assistant": BASE_DIR,
-        }
+        "desktop": "Desktop",
+        "downloads": "Downloads",
+        "documents": "Documents",
+        "pictures": "Pictures",
+        "videos": "Videos",
+        "music": "Music",
+    }
 
-        if lowered in folder_map:
+    if lowered == "ai assistant":
 
-            folder = folder_map[
-                lowered
+        if BASE_DIR.exists():
+            return [
+                BASE_DIR
             ]
 
-            if folder.exists():
+        return []
 
-                return [
-                    folder
-                ]
+
+    if lowered in folder_map:
+
+        folder_name = folder_map[
+            lowered
+        ]
+
+        candidates = [
+            profile / folder_name
+        ]
+
+        one_drive = os.environ.get(
+            "OneDrive"
+        )
+
+        if one_drive:
+
+            candidates.append(
+                Path(one_drive) / folder_name
+            )
+
+        existing = [
+            folder
+            for folder in candidates
+            if folder.exists()
+        ]
+
+        return unique_paths(
+            existing
+        )
 
     return []
 
