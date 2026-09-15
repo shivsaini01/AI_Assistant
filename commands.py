@@ -13,12 +13,9 @@ from jarvis_tools import (
 # CONFIGURATION
 # ==================================================
 
-BASE_DIR = r"C:\AI_Assistant"
-
-SKILLS_FOLDER = os.path.join(
-    BASE_DIR,
-    "skills"
-)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SKILLS_FOLDER = os.path.join(BASE_DIR, "skills")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
 
 CREATE_FOLDER = SKILLS_FOLDER
 

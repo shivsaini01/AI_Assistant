@@ -51,12 +51,9 @@ from conversation_memory import (
 
 MODEL = "qwen2.5:7b-instruct-q3_K_M"
 
-BASE_DIR = r"C:\AI_Assistant"
-
-SAFE_FOLDER = os.path.join(
-    BASE_DIR,
-    "skills"
-)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SAFE_FOLDER = os.path.join(BASE_DIR, "skills")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
 
 MAX_CONTEXT_TURNS = 8
 

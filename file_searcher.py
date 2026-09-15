@@ -9,9 +9,9 @@ from difflib import SequenceMatcher
 # CONFIGURATION
 # ==================================================
 
-BASE_DIR = Path(
-    r"C:\AI_Assistant"
-)
+BASE_DIR = Path(__file__).resolve().parent
+SAFE_FOLDER = os.path.join(BASE_DIR, "skills")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
 
 # Folders that are more useful for a personal assistant
 PRIORITY_FOLDER_NAMES = {
