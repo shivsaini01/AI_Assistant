@@ -1,315 +1,218 @@
 # ==================================================
-# JARVIS SHORT-TERM MEMORY
+# JARVIS CONVERSATION MEMORY
+# Persistent SQLite-backed memory
 # ==================================================
 
-from collections import deque
-from typing import Any, Dict, List, Optional
-
-
-# ==================================================
-# CONFIG
-# ==================================================
-
-MAX_TURNS = 8
-
-
-# ==================================================
-# MEMORY
-# ==================================================
-
-conversation_memory = deque(maxlen=MAX_TURNS)
-
-# Generic structured context.
-# STM does not decide what the values mean.
-context_memory: Dict[str, Any] = {}
+from memory_manager import (
+    DEFAULT_USER_ID,
+    save_conversation,
+    get_recent_conversations,
+    set_context,
+    get_context as db_get_context,
+    get_last_command,
+)
 
 
 # ==================================================
-# CONVERSATION MEMORY
+# CONFIGURATION
+# ==================================================
+
+MAX_TURNS = 10
+
+
+# ==================================================
+# REMEMBER CONVERSATION
 # ==================================================
 
 def remember(
-    user_text: str,
-    assistant_text: str = "",
-    metadata: Optional[Dict[str, Any]] = None
-) -> None:
-    """
-    Store one conversation turn.
-    """
+    user_text,
+    assistant_text,
+    metadata=None,
+    user_id=DEFAULT_USER_ID,
+    session_id=None
+):
 
-    if not user_text:
-        return
-
-    turn = {
-        "user": str(user_text).strip(),
-        "assistant": str(assistant_text or "").strip(),
-        "metadata": dict(metadata or {})
-    }
-
-    conversation_memory.append(turn)
-
-
-def get_memory() -> List[Dict[str, Any]]:
-    return [dict(turn) for turn in conversation_memory]
-
-
-def get_recent_memory(count: int = 3) -> List[Dict[str, Any]]:
-    if count <= 0:
-        return []
-
-    recent = list(conversation_memory)[-count:]
-
-    return [
-        dict(turn)
-        for turn in recent
-    ]
-
-
-def get_last_turn() -> Optional[Dict[str, Any]]:
-    if not conversation_memory:
-        return None
-
-    return dict(conversation_memory[-1])
-
-
-def get_last_exchange() -> Dict[str, str]:
-    if not conversation_memory:
-        return {
-            "user": "",
-            "assistant": ""
-        }
-
-    turn = conversation_memory[-1]
-
-    return {
-        "user": turn.get("user", ""),
-        "assistant": turn.get("assistant", "")
-    }
-
-
-def get_last_user_message() -> str:
-    if not conversation_memory:
-        return ""
-
-    return conversation_memory[-1].get("user", "")
-
-
-def get_last_assistant_message() -> str:
-    if not conversation_memory:
-        return ""
-
-    return conversation_memory[-1].get("assistant", "")
-
-
-def get_last_metadata() -> Dict[str, Any]:
-    if not conversation_memory:
-        return {}
-
-    metadata = conversation_memory[-1].get("metadata", {})
-
-    if not isinstance(metadata, dict):
-        return {}
-
-    return dict(metadata)
-
-
-def get_last_command_context() -> Dict[str, Any]:
-    """
-    Return the most recent command metadata.
-    """
-
-    for turn in reversed(conversation_memory):
-
-        metadata = turn.get("metadata", {})
-
-        if not isinstance(metadata, dict):
-            continue
-
-        if metadata.get("type") == "command":
-            return dict(metadata)
-
-    return {}
-
-
-def find_previous_user_message(offset: int = 1) -> str:
-    """
-    Find an earlier user message.
-
-    offset=1 -> previous user message
-    offset=2 -> two user messages back
-    """
-
-    if offset <= 0:
-        return get_last_user_message()
-
-    user_messages = [
-        turn.get("user", "")
-        for turn in conversation_memory
-        if turn.get("user")
-    ]
-
-    if len(user_messages) <= offset:
-        return ""
-
-    return user_messages[-(offset + 1)]
+    save_conversation(
+        user_text=user_text,
+        assistant_text=assistant_text,
+        metadata=metadata or {},
+        user_id=user_id,
+        session_id=session_id
+    )
 
 
 # ==================================================
-# STRUCTURED CONTEXT
+# GET RECENT MEMORY
 # ==================================================
 
-def remember_context(key: str, value: Any) -> None:
-    """
-    Store generic structured context.
+def get_recent_memory(
+    limit=MAX_TURNS,
+    user_id=DEFAULT_USER_ID
+):
 
-    STM does not interpret the key or value.
-    """
-
-    if not key:
-        return
-
-    context_memory[str(key)] = value
-
-
-def remember_context_many(values: Dict[str, Any]) -> None:
-    """
-    Store multiple context values.
-    """
-
-    if not isinstance(values, dict):
-        return
-
-    for key, value in values.items():
-
-        if key:
-            context_memory[str(key)] = value
-
-
-def get_context_value(
-    key: str,
-    default: Any = None
-) -> Any:
-
-    return context_memory.get(key, default)
-
-
-def get_context() -> Dict[str, Any]:
-    return dict(context_memory)
-
-
-def forget_context(key: str) -> None:
-    context_memory.pop(key, None)
+    return get_recent_conversations(
+        limit=limit,
+        user_id=user_id
+    )
 
 
 # ==================================================
-# BUILD AI CONTEXT
+# BUILD BASIC CONTEXT
 # ==================================================
 
-def build_context(count: int = 3) -> str:
-    """
-    Build recent conversation context for the AI.
-    """
+def build_context(
+    limit=MAX_TURNS,
+    user_id=DEFAULT_USER_ID
+):
 
-    recent = get_recent_memory(count)
+    memories = get_recent_memory(
+        limit=limit,
+        user_id=user_id
+    )
 
-    if not recent:
+    if not memories:
         return ""
 
     lines = []
 
-    for turn in recent:
+    for memory in memories:
 
-        user = turn.get("user", "")
-        assistant = turn.get("assistant", "")
+        lines.append(
+            f"User: {memory['user']}"
+        )
 
-        if user:
-            lines.append(f"User: {user}")
-
-        if assistant:
-            lines.append(f"Jarvis: {assistant}")
+        lines.append(
+            f"Jarvis: {memory['assistant']}"
+        )
 
     return "\n".join(lines)
 
 
-def build_context_with_metadata(count: int = 3) -> str:
-    """
-    Build complete short-term context.
+# ==================================================
+# BUILD CONTEXT WITH METADATA
+# ==================================================
 
-    Includes:
-    - recent conversation
-    - structured metadata
-    - current structured memory
-    """
+def build_context_with_metadata(
+    limit=MAX_TURNS,
+    user_id=DEFAULT_USER_ID
+):
 
-    recent = get_recent_memory(count)
+    memories = get_recent_memory(
+        limit=limit,
+        user_id=user_id
+    )
+
+    if not memories:
+        return ""
 
     lines = []
 
-    # ------------------------------
-    # Recent conversation
-    # ------------------------------
+    for memory in memories:
 
-    if recent:
+        lines.append(
+            f"User: {memory['user']}"
+        )
 
-        lines.append("RECENT CONVERSATION:")
+        lines.append(
+            f"Jarvis: {memory['assistant']}"
+        )
 
-        for turn in recent:
+        metadata = memory.get(
+            "metadata",
+            {}
+        )
 
-            user = turn.get("user", "")
-            assistant = turn.get("assistant", "")
-            metadata = turn.get("metadata", {})
-
-            if user:
-                lines.append(f"User: {user}")
-
-            if assistant:
-                lines.append(f"Jarvis: {assistant}")
-
-            if metadata:
-
-                lines.append("Turn metadata:")
-
-                for key, value in metadata.items():
-
-                    # Actions can be large and are already represented
-                    # by other metadata.
-                    if key == "actions":
-                        continue
-
-                    lines.append(
-                        f"- {key}: {value}"
-                    )
-
-    # ------------------------------
-    # Structured memory
-    # ------------------------------
-
-    if context_memory:
-
-        lines.append("")
-        lines.append("CURRENT STRUCTURED MEMORY:")
-
-        for key, value in context_memory.items():
+        if metadata:
 
             lines.append(
-                f"- {key}: {value}"
+                f"Metadata: {metadata}"
             )
 
     return "\n".join(lines)
 
 
 # ==================================================
-# MEMORY MANAGEMENT
+# REMEMBER CONTEXT
 # ==================================================
 
-def clear_memory() -> None:
-    """
-    Clear both conversation and structured STM.
-    """
+def remember_context(
+    key,
+    value,
+    user_id=DEFAULT_USER_ID
+):
 
-    conversation_memory.clear()
-    context_memory.clear()
+    set_context(
+        context_key=key,
+        context_value=value,
+        user_id=user_id
+    )
 
 
-def memory_count() -> int:
-    return len(conversation_memory)
+# ==================================================
+# REMEMBER MULTIPLE CONTEXT VALUES
+# ==================================================
+
+def remember_context_many(
+    context_data,
+    user_id=DEFAULT_USER_ID
+):
+
+    if not context_data:
+        return
+
+    for key, value in context_data.items():
+
+        remember_context(
+            key,
+            value,
+            user_id=user_id
+        )
+
+
+# ==================================================
+# GET CONTEXT
+# ==================================================
+
+def get_context(
+    key,
+    user_id=DEFAULT_USER_ID,
+    default=None
+):
+
+    return db_get_context(
+        context_key=key,
+        user_id=user_id,
+        default=default
+    )
+
+
+# ==================================================
+# GET SIMPLE CONTEXT VALUE
+# ==================================================
+
+def get_context_value(
+    key,
+    default=None,
+    user_id=DEFAULT_USER_ID
+):
+
+    value = get_context(
+        key,
+        user_id=user_id,
+        default=default
+    )
+
+    return value
+
+
+# ==================================================
+# GET LAST COMMAND CONTEXT
+# ==================================================
+
+def get_last_command_context(
+    user_id=DEFAULT_USER_ID
+):
+
+    return get_last_command(
+        user_id=user_id
+    )
