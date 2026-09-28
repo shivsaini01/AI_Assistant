@@ -46,6 +46,32 @@ def clean_json_response(
     return text.strip()
 
 
+def _normalized_provider(provider):
+    if provider == "online":
+        return "groq"
+    if provider == "offline" or provider is None:
+        return "local"
+    return provider
+
+
+def _provider_completion(provider, prompt, purpose):
+    """Call a cloud model for JSON parsing without enabling search."""
+    from ai_providers import generate_provider_text
+
+    normalized = _normalized_provider(provider)
+    system_prompt = f"{purpose}. Follow all instructions and return only valid JSON."
+    # Preserve existing clients which used provider='online' directly.
+    if provider == "online":
+        from ai_providers import generate_groq_text
+        return generate_groq_text(system_prompt, prompt, web_search=False)
+    return generate_provider_text(normalized, system_prompt, prompt, web_search=False)
+
+
+def _cloud_parse_error(provider, reason):
+    from ai_providers import ProviderRequestError
+    return ProviderRequestError(_normalized_provider(provider), reason)
+
+
 # ==================================================
 # STAGE 1
 # CONVERSATION OR COMMAND
@@ -53,8 +79,11 @@ def clean_json_response(
 
 def classify_message(
     user_text,
-    conversation_context=""
+    conversation_context="",
+    provider="local",
 ):
+
+    cloud = _normalized_provider(provider) != "local"
 
     prompt = f"""
 You are Jarvis's first-stage intent classifier.
@@ -182,22 +211,23 @@ CURRENT MESSAGE
 """
 
     try:
-
-        response = chat(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-
-        content = response[
-            "message"
-        ][
-            "content"
-        ].strip()
+        if cloud:
+            content = _provider_completion(
+                provider,
+                prompt,
+                "Classify Jarvis messages",
+            )
+        else:
+            response = chat(
+                model=MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+            content = response["message"]["content"].strip()
 
         content = clean_json_response(
             content
@@ -207,20 +237,18 @@ CURRENT MESSAGE
             content
         )
 
-        if not isinstance(
-            data,
-            dict
-        ):
+        if not isinstance(data, dict):
+            if cloud:
+                raise _cloud_parse_error(provider, "Cloud provider returned invalid intent data.")
             return None
 
         mode = data.get(
             "mode"
         )
 
-        if mode not in {
-            "conversation",
-            "command"
-        }:
+        if mode not in {"conversation", "command"}:
+            if cloud:
+                raise _cloud_parse_error(provider, "Cloud provider returned invalid intent data.")
             return None
 
         return {
@@ -228,6 +256,14 @@ CURRENT MESSAGE
         }
 
     except Exception as e:
+
+        if cloud:
+            from ai_providers import ProviderRequestError
+            if isinstance(e, (ProviderRequestError,)):
+                raise
+            if isinstance(e, json.JSONDecodeError):
+                raise _cloud_parse_error(provider, "Cloud provider returned malformed intent JSON.") from e
+            raise
 
         print(
             f"Classification error: {e}"
@@ -243,8 +279,11 @@ CURRENT MESSAGE
 
 def extract_actions(
     user_text,
-    conversation_context=""
+    conversation_context="",
+    provider="local",
 ):
+
+    cloud = _normalized_provider(provider) != "local"
 
     # ------------------------------------------
     # NEGATIVE COMMAND
@@ -899,22 +938,23 @@ CURRENT MESSAGE
 """
 
     try:
-
-        response = chat(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-
-        content = response[
-            "message"
-        ][
-            "content"
-        ].strip()
+        if cloud:
+            content = _provider_completion(
+                provider,
+                prompt,
+                "Extract Jarvis actions",
+            )
+        else:
+            response = chat(
+                model=MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+            content = response["message"]["content"].strip()
 
     
 
@@ -926,10 +966,9 @@ CURRENT MESSAGE
             content
         )
 
-        if not isinstance(
-            data,
-            dict
-        ):
+        if not isinstance(data, dict):
+            if cloud:
+                raise _cloud_parse_error(provider, "Cloud provider returned invalid action data.")
             return None
 
         actions = data.get(
@@ -947,12 +986,13 @@ CURRENT MESSAGE
                 ]
 
             else:
+                if cloud:
+                    raise _cloud_parse_error(provider, "Cloud provider returned no actions.")
                 actions = []
 
-        if not isinstance(
-            actions,
-            list
-        ):
+        if not isinstance(actions, list):
+            if cloud:
+                raise _cloud_parse_error(provider, "Cloud provider returned invalid action data.")
             return None
 
         return {
@@ -960,6 +1000,14 @@ CURRENT MESSAGE
         }
 
     except Exception as e:
+
+        if cloud:
+            from ai_providers import ProviderRequestError
+            if isinstance(e, ProviderRequestError):
+                raise
+            if isinstance(e, json.JSONDecodeError):
+                raise _cloud_parse_error(provider, "Cloud provider returned malformed action JSON.") from e
+            raise
 
         print(
             f"Action extraction error: {e}"
@@ -974,12 +1022,14 @@ CURRENT MESSAGE
 
 def parse_user_intent(
     user_text,
-    conversation_context=""
+    conversation_context="",
+    provider="local",
 ):
 
     classification = classify_message(
         user_text,
-        conversation_context
+        conversation_context,
+        provider=provider,
     )
 
     if not classification:
@@ -996,7 +1046,8 @@ def parse_user_intent(
 
     actions = extract_actions(
         user_text,
-        conversation_context
+        conversation_context,
+        provider=provider,
     )
 
     if not actions:

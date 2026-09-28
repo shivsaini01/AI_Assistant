@@ -1,0 +1,5 @@
+Flask
+ollama
+groq
+openai
+google-genai

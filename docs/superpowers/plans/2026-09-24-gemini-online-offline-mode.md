@@ -1,54 +1,54 @@
-# Gemini Online and Qwen Offline Mode Implementation Plan
+# Groq Online and Qwen Offline Mode Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a web UI mode selector for Gemini Online and local Qwen Offline, with automatic Qwen fallback when Gemini is unavailable.
+**Goal:** Add a web UI mode selector for Groq Online and local Qwen Offline, with automatic Qwen fallback when Groq is unavailable.
 
-**Architecture:** Add a Gemini provider module using Google's `google-genai` SDK, and route assistant conversation responses by requested mode while retaining Qwen as the console default. The web endpoint validates and forwards mode, returning both the message and effective mode; the browser persists the selection for its tab and adopts Offline when the server falls back.
+**Architecture:** Add a Groq provider module using the `groq` SDK, and route assistant conversation responses by requested mode while retaining Qwen as the console default. The web endpoint validates and forwards mode, returning both the message and effective mode; the browser persists the selection for its tab and adopts Offline when the server falls back.
 
-**Tech Stack:** Python, Flask, Ollama, Google GenAI Python SDK, browser JavaScript and CSS.
+**Tech Stack:** Python, Flask, Ollama, Groq Python SDK, browser JavaScript and CSS.
 
 **Spec:** [2026-09-24-gemini-online-offline-mode-design.md](../specs/2026-09-24-gemini-online-offline-mode-design.md)
 
 ## Global Constraints
 
-- Keep `GEMINI_API_KEY` server-side in the process environment.
-- Online requests use Gemini; Offline requests use the existing local Qwen/Ollama model.
-- Gemini quota, connectivity, service, or configuration failures fall back to Qwen for the current request.
+- Keep `GROQ_API_KEY` server-side in the process environment.
+- Online requests use Groq; Offline requests use the existing local Qwen/Ollama model.
+- Groq quota, connectivity, service, or configuration failures fall back to Qwen for the current request.
 - The web selection is per browser tab and is sent on every `/command` request.
 - Preserve the existing `process_user_input(user_text)` console behavior.
 - Do not add or run tests unless the user asks for implementation verification.
-- Use Google's `google-genai` SDK, which Google currently recommends for Python applications: [Gemini API getting started](https://ai.google.dev/gemini-api/docs/get-started).
+- Use the official Groq Python SDK: [Groq quickstart](https://console.groq.com/docs/quickstart).
 
 ## Review Focus
 
-- Missing `GEMINI_API_KEY`: Online mode should fall back to Qwen and the UI should reflect Offline.
-- Invalid/missing request mode: the endpoint should reject invalid mode values and apply the documented default for compatible callers that omit mode.
-- Gemini returns no text: treat this as a provider failure and use Qwen.
-- Qwen also fails after Gemini failure: return an error response without claiming a successful answer.
+- Missing `GROQ_API_KEY`: Online mode should fall back to Qwen and the UI should reflect Offline.
+- Invalid/missing request mode: the endpoint should reject the request with HTTP 400.
+- Groq returns no text: treat this as a provider failure and use Qwen.
+- Qwen also fails after Groq failure: return an error response without claiming a successful answer.
 - User changes mode while a request is in flight: keep the submitted request's effective mode from overwriting a newer user selection.
 
 ## File Map
 
-- Create `ai_providers.py`: encapsulate Gemini client setup and text generation, including server-side key/model configuration.
-- Modify `assistant.py`: reuse its existing system prompt and conversation context for Gemini, route web conversation responses by requested mode, fall back to Qwen, and expose the effective mode to the web caller without changing console output behavior.
+- Create `ai_providers.py`: encapsulate Groq client setup and text generation, including server-side key/model configuration.
+- Modify `assistant.py`: reuse its existing system prompt and conversation context for Groq, route web conversation responses by requested mode, fall back to Qwen, and expose the effective mode to the web caller without changing console output behavior.
 - Modify `web_server.py`: validate mode and return `{success, message, mode}` from `/command`.
 - Modify `templates/index.html`: add the Online/Offline dropdown and mode status, send mode with each request, retain the tab selection, and synchronize it after fallback.
-- Modify `requirements.txt` only if one exists or is added as the repository's dependency manifest; add `google-genai` there. If no manifest exists, add a minimal `requirements.txt` covering currently imported runtime packages plus `google-genai` only after inspecting imports during execution.
+- Modify `requirements.txt` only if one exists or is added as the repository's dependency manifest; add `groq` there. If no manifest exists, add a minimal `requirements.txt` covering currently imported runtime packages plus `groq` only after inspecting imports during execution.
 
-### Task 1: Add the Gemini provider and dependency declaration
+### Task 1: Add the Groq provider and dependency declaration
 
 **Files:**
 - Create: `ai_providers.py`
 - Create or modify: `requirements.txt`
 
 **Interfaces:**
-- Produces: `generate_gemini_text(system_prompt: str, user_text: str) -> str`.
-- Reads `GEMINI_API_KEY`; reads optional `GEMINI_MODEL`, defaulting to the current model recommended in Google's docs at implementation time.
+- Produces: `generate_groq_text(system_prompt: str, user_text: str) -> str`.
+- Reads `GROQ_API_KEY`; reads optional `GROQ_MODEL`, defaulting to `openai/gpt-oss-120b`.
 - Raises provider/configuration errors to the assistant routing layer; never returns an empty response as a success.
 
-- [ ] Inspect existing imports and repository setup to determine the minimum safe dependency manifest; declare `google-genai` and avoid replacing existing dependency pins.
-- [ ] Implement a small Gemini adapter that creates a server-side client, passes system instructions and user text, and returns non-empty response text.
+- [ ] Inspect existing imports and repository setup to determine the minimum safe dependency manifest; declare `groq` and avoid replacing existing dependency pins.
+- [ ] Implement a small Groq adapter that creates a server-side client, passes system instructions and user text, and returns non-empty response text.
 - [ ] Keep credentials out of source, frontend code, and logs; make absent configuration distinguishable to the fallback layer.
 - [ ] Review the adapter and dependency diff for accidental secret exposure or unrelated dependency changes.
 
@@ -56,17 +56,17 @@
 
 **Files:**
 - Modify: `assistant.py`
-- Consume: `ai_providers.generate_gemini_text(system_prompt, user_text)`
+- Consume: `ai_providers.generate_groq_text(system_prompt, user_text)`
 
 **Interfaces:**
 - Preserve: `process_user_input(user_text)` returns a string and continues to use Qwen for console conversations.
 - Add a web-capable path: `process_user_input(user_text, mode="offline", include_mode=False)` returns a string by default; when `include_mode=True`, returns `(message, effective_mode)`.
-- `ask_ai` should accept mode and return its answer with the actual effective mode to the web-capable path.
+- Add `ask_ai_with_mode(user_text, conversation_context, requested_mode) -> (message, effective_mode)` for web requests; keep `ask_ai(user_text, conversation_context="") -> str` as the console-compatible local wrapper.
 
-- [ ] Extract the existing system prompt construction so the same Jarvis instructions and recent conversation context are used by both providers.
-- [ ] Add Online routing for natural language responses and Qwen routing for Offline responses.
-- [ ] On Gemini configuration, quota, network, service, or empty-response failures, invoke the existing Qwen call for that same request and mark effective mode Offline.
-- [ ] If Qwen fails after Gemini fails, propagate an error to Flask rather than storing or returning a success claim.
+- [ ] Extract the existing system prompt construction and local Ollama invocation so both provider paths receive the same Jarvis instructions and recent conversation context.
+- [ ] Add `ask_ai_with_mode` for web natural language requests: Online routes through Groq; Offline routes through Ollama.
+- [ ] On Groq configuration, quota, network, service, or empty-response failures, invoke the existing Qwen call for that same request and mark effective mode Offline.
+- [ ] Let the shared Ollama call raise provider errors; if Qwen fails after Gemini fails (or fails in Offline mode), propagate the error to Flask rather than storing or returning a success claim. Keep the `ask_ai` console wrapper's existing human-readable error string behavior.
 - [ ] Keep command execution paths (file search, app launch, skills, etc.) unchanged; report the selected mode as effective when no language model is needed.
 - [ ] Preserve existing console calls and string return values.
 - [ ] Review every `process_user_input` return path to ensure web requests consistently include the effective mode and console callers retain prior behavior.
@@ -78,11 +78,11 @@
 - Consume: `process_user_input(user_text, mode=..., include_mode=True)`
 
 **Interfaces:**
-- Request: JSON object with `command` and optional `mode` (`online` or `offline`).
+- Request: JSON object with `command` and required `mode` (`online` or `offline`).
 - Success response: `{"success": true, "message": "...", "mode": "online|offline"}`.
 - Invalid mode response: HTTP 400 with a clear message.
 
-- [ ] Validate that `mode` is a string whose normalized value is `online` or `offline`; default omitted mode to `online` for the web UI while the Python console continues defaulting to local mode.
+- [ ] Validate that `mode` is present, is a string, and normalizes to `online` or `offline`; reject missing or invalid mode with HTTP 400. The browser supplies Online by default, and the Python console continues defaulting to local mode.
 - [ ] Call the web-capable assistant path and serialize both its message and effective mode.
 - [ ] Preserve existing empty-body, empty-command, and exception handling behavior, ensuring provider failure is surfaced as an error response.
 - [ ] Review response branches so each successful response contains a valid mode and errors do not claim success.

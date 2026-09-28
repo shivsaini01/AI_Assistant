@@ -125,10 +125,43 @@
         color: var(--text-secondary);
     }
 
+    .mode-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+    }
+
+    .mode-label {
+        color: var(--text-muted);
+        font-size: 11px;
+    }
+
+    .mode-select {
+        min-height: 32px;
+        padding: 0 28px 0 10px;
+        border: 1px solid var(--border-soft);
+        border-radius: 9px;
+        color: var(--text-primary);
+        background: #111821;
+        font: inherit;
+        font-size: 11.5px;
+        cursor: pointer;
+    }
+
+    .mode-select:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+
     .status-dot {
         width: 7px; height: 7px; border-radius: 50%;
         background: var(--success);
         box-shadow: 0 0 7px rgba(61, 220, 132, 0.55);
+    }
+
+    .status-pill[data-provider="local"] .status-dot {
+        background: var(--text-muted);
+        box-shadow: none;
     }
 
     /* ==========================================
@@ -595,7 +628,10 @@
         .brand-title { font-size: 13.5px; }
         .brand-subtitle { font-size: 9.5px; }
 
-        .status-pill { padding: 5px 9px; font-size: 10.5px; }
+        .mode-control { gap: 6px; }
+        .mode-label { display: none; }
+        .mode-select { min-height: 30px; padding-left: 8px; font-size: 10.5px; }
+        .status-pill { padding: 5px 8px; font-size: 10.5px; }
 
         .chat { padding: 18px 14px 24px; }
 
@@ -647,9 +683,18 @@
                 <h1 class="brand-title">J.A.R.V.I.S</h1>
             </div>
         </div>
-        <div class="status-pill">
-            <span class="status-dot"></span>
-            <span>Online</span>
+        <div class="mode-control">
+            <label class="mode-label" for="modelProvider">Model provider</label>
+            <select class="mode-select" id="modelProvider" aria-label="Model provider">
+                <option value="groq">Groq</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="gemini">Gemini</option>
+                <option value="local">Local Qwen</option>
+            </select>
+            <div class="status-pill" id="providerStatusPill" data-provider="groq" aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="providerStatus">Groq</span>
+            </div>
         </div>
     </header>
 
@@ -715,6 +760,7 @@
 
 </div>
 
+<script src="{{ url_for('static', filename='provider_selector.js') }}"></script>
 <script>
 (function () {
     "use strict";
@@ -725,12 +771,42 @@
     const sendBtn    = document.getElementById("sendBtn");
     const chat       = document.getElementById("chat");
     const inputHint  = document.getElementById("inputHint");
+    const providerSelect = document.getElementById("modelProvider");
+    const providerStatus = document.getElementById("providerStatus");
+    const providerStatusPill = document.getElementById("providerStatusPill");
+    const providerHelpers = window.JarvisProviderSelector;
 
     const HISTORY_KEY = "jarvis.chat.history.v4";
+    const PROVIDER_KEY = "jarvis.ai.provider.v1";
+    const LEGACY_MODE_KEY = "jarvis.ai.mode.v1";
     const MAX_ROWS_PX = 140;
 
     let isSending = false;
     let typingRow = null;
+
+    function setProvider(provider, persist) {
+        if (!providerHelpers.isProvider(provider)) return;
+
+        const labels = { groq: "Groq", deepseek: "DeepSeek", gemini: "Gemini", local: "Local Qwen" };
+        providerSelect.value = provider;
+        providerStatus.textContent = labels[provider];
+        providerStatusPill.dataset.provider = provider;
+
+        if (persist !== false) {
+            try { sessionStorage.setItem(PROVIDER_KEY, provider); } catch (_) { /* ignore */ }
+        }
+    }
+
+    try {
+        const savedProvider = sessionStorage.getItem(PROVIDER_KEY);
+        const legacyMode = sessionStorage.getItem(LEGACY_MODE_KEY);
+        const initialProvider = savedProvider !== null
+            ? providerHelpers.normalizeProvider(savedProvider)
+            : providerHelpers.normalizeProvider(legacyMode);
+        setProvider(initialProvider, false);
+    } catch (_) {
+        setProvider("groq", false);
+    }
 
     /* ==========================================
        TIME
@@ -929,6 +1005,7 @@
         input.disabled = true;
         sendBtn.disabled = true;
         sendBtn.classList.add("sending");
+        const submittedProvider = providerSelect.value;
 
         showTyping();
 
@@ -936,13 +1013,18 @@
             const response = await fetch("/command", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ command: text })
+                body: JSON.stringify({ command: text, provider: submittedProvider })
             });
 
             let data = null;
             try { data = await response.json(); } catch (_) { /* ignore */ }
 
             hideTyping();
+
+            if (data && providerHelpers.isProvider(data.provider) &&
+                    providerHelpers.shouldApplyProviderResponse(providerSelect.value, submittedProvider)) {
+                setProvider(data.provider, true);
+            }
 
             if (response.ok && data && data.success) {
                 appendMessage((data.message || "Done.").trim(), "jarvis");
@@ -974,6 +1056,10 @@
     /* ==========================================
        EVENTS
        ========================================== */
+
+    providerSelect.addEventListener("change", function () {
+        setProvider(providerSelect.value, true);
+    });
 
     input.addEventListener("input", function () {
         autoGrow();

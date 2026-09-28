@@ -1,1 +1,7 @@
-{}
+{
+    "obs": {
+        "filename": "obs.py",
+        "triggers": [],
+        "description": "Skill created from request: make a skill to open obs"
+    }
+}

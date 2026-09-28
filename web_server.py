@@ -26,7 +26,15 @@ def command():
             "message": "No data received."
         }), 400
 
-    user_text = data.get("command", "").strip()
+    user_text = data.get("command", "")
+
+    if not isinstance(user_text, str):
+        return jsonify({
+            "success": False,
+            "message": "Command must be text."
+        }), 400
+
+    user_text = user_text.strip()
 
     if not user_text:
         return jsonify({
@@ -34,20 +42,43 @@ def command():
             "message": "Command is empty."
         }), 400
 
+    requested_provider = data.get("provider")
+
+    if not isinstance(requested_provider, str):
+        return jsonify({
+            "success": False,
+            "message": "Provider must be groq, deepseek, gemini, or local."
+        }), 400
+
+    requested_provider = requested_provider.strip().lower()
+
+    if requested_provider not in {"groq", "deepseek", "gemini", "local"}:
+        return jsonify({
+            "success": False,
+            "message": "Provider must be groq, deepseek, gemini, or local."
+        }), 400
+
     try:
-        response = process_user_input(user_text)
+        response, effective_provider = process_user_input(
+            user_text,
+            provider=requested_provider,
+            include_provider=True,
+        )
 
         return jsonify({
             "success": True,
-            "message": response
+            "message": response,
+            "provider": effective_provider,
         })
 
     except Exception as e:
-        print(f"Flask/Jarvis error: {e}")
+        # Avoid exposing provider SDK error details or credentials in logs.
+        print(f"Flask/Jarvis error: {type(e).__name__}")
 
         return jsonify({
             "success": False,
-            "message": "Jarvis encountered an error."
+            "message": "Jarvis could not complete the request. Check that the selected model is available.",
+            "provider": getattr(e, "effective_provider", requested_provider),
         }), 500
 
 

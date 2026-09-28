@@ -6,6 +6,11 @@ from datetime import datetime
 from urllib.parse import quote_plus
 
 from ollama import chat
+from ai_providers import (
+    ProviderConfigurationError,
+    ProviderRequestError,
+    ModelRequestError,
+)
 
 from commands import (
     create_file,
@@ -1224,14 +1229,17 @@ def handle_skill(
 # ==================================================
 
 def process_actions(
-    result
+    result,
+    response_mode=None,
+    conversation_context="",
+    fallback_on_cloud_error=True,
 ):
 
     if not isinstance(
         result,
         dict
     ):
-        return False
+        return False, response_mode
 
     actions = result.get(
         "actions",
@@ -1242,11 +1250,31 @@ def process_actions(
         actions,
         list
     ):
-        return False
+        return False, response_mode
 
     processed = False
+    effective_mode = response_mode
 
-    for action in actions:
+    # Resolve cloud chat actions before any external command action runs. If
+    # cloud generation fails, the caller can safely restart this request on
+    # Qwen without launching/opening/searching twice.
+    prepared_chat_answers = {}
+    if (
+        not fallback_on_cloud_error
+        and response_mode in {"groq", "deepseek", "gemini"}
+    ):
+        for index, action in enumerate(actions):
+            if isinstance(action, dict) and action.get("type") == "chat":
+                text = action.get("text", "")
+                if text:
+                    prepared_chat_answers[index] = ask_ai_with_provider(
+                        text,
+                        conversation_context,
+                        response_mode,
+                        fallback_on_cloud_error=False,
+                    )
+
+    for action_index, action in enumerate(actions):
 
         if not isinstance(
             action,
@@ -1376,10 +1404,20 @@ def process_actions(
             )
 
             if text:
-
-                handle_chat(
-                    text
-                )
+                if response_mode is None:
+                    handle_chat(text)
+                else:
+                    if action_index in prepared_chat_answers:
+                        answer, effective_mode = prepared_chat_answers[action_index]
+                    elif response_mode in {"online", "offline"}:
+                        answer, effective_mode = ask_ai_with_mode(
+                            text, conversation_context, response_mode
+                        )
+                    else:
+                        answer, effective_mode = ask_ai_with_provider(
+                            text, conversation_context, response_mode
+                        )
+                    print(f"Jarvis: {answer}")
 
                 processed = True
 
@@ -1564,7 +1602,7 @@ def process_actions(
 
                 processed = True
 
-    return processed
+    return processed, effective_mode
 
 
 
@@ -1574,7 +1612,9 @@ def process_actions(
 
 def ask_ai(
     user_text,
-    conversation_context=""
+    conversation_context="",
+    provider="local",
+    raise_errors=False,
 ):
 
     try:
@@ -1636,6 +1676,9 @@ When the user is having a normal conversation:
 
 When the user's intention is genuinely ambiguous, prefer understanding
 the message as conversation rather than inventing an action.
+
+For questions about current, recent, or time-sensitive information, use
+the available browser search tool and base the answer on its results.
 
 ========================
 ACTION AWARENESS
@@ -1722,6 +1765,16 @@ Recent conversation:
 """ + conversation_context
 
 
+        provider = "groq" if provider == "online" else "local" if provider == "offline" else provider
+        if provider != "local":
+            from ai_providers import generate_provider_text
+            return generate_provider_text(
+                provider,
+                system_prompt,
+                user_text,
+                web_search=(provider == "groq"),
+            )
+
         response = chat(
             model=MODEL,
             messages=[
@@ -1736,15 +1789,75 @@ Recent conversation:
             ]
         )
 
-        return response[
+        answer = response[
             "message"
         ][
             "content"
         ].strip()
 
+        if not answer:
+            raise RuntimeError("Qwen returned an empty response.")
+
+        return answer
+
     except Exception as e:
 
+        if raise_errors:
+            raise
+
         return f"AI error: {e}"
+
+
+def _fallback_reason(provider, error):
+    if isinstance(error, (ProviderConfigurationError, ProviderRequestError)):
+        return error.public_message
+    return f"{provider.title()} request failed ({type(error).__name__})."
+
+
+def ask_ai_with_provider(
+    user_text,
+    conversation_context,
+    requested_provider,
+    fallback_on_cloud_error=True,
+):
+    """Generate with a selected provider and fall back to Qwen on cloud errors."""
+    if requested_provider == "local":
+        try:
+            return ask_ai(user_text, conversation_context, provider="local", raise_errors=True), "local"
+        except Exception as error:
+            raise ModelRequestError("Local Qwen could not complete the request.", "local") from error
+
+    try:
+        answer = ask_ai(
+            user_text,
+            conversation_context,
+            provider=requested_provider,
+            raise_errors=True,
+        )
+        return answer, requested_provider
+    except Exception as cloud_error:
+        if not fallback_on_cloud_error:
+            raise
+        try:
+            answer = ask_ai(user_text, conversation_context, provider="local", raise_errors=True)
+        except Exception as fallback_error:
+            raise ModelRequestError(
+                f"{requested_provider.title()} and local Qwen could not complete the request.",
+                "local",
+            ) from fallback_error
+        reason = _fallback_reason(requested_provider, cloud_error)
+        return f"{reason} I answered with local Qwen instead.\n\n{answer}", "local"
+
+
+def ask_ai_with_mode(
+    user_text,
+    conversation_context,
+    requested_mode,
+):
+
+    provider = "local" if requested_mode == "offline" else "groq"
+    answer, effective = ask_ai_with_provider(user_text, conversation_context, provider)
+    return answer, "offline" if effective == "local" else "online"
 
 
 # ==================================================
@@ -1932,11 +2045,48 @@ def build_command_metadata(
 # PROCESS USER INPUT
 # ==================================================
 
-def process_user_input(user_text):
+def process_user_input(
+    user_text,
+    provider=None,
+    include_provider=False,
+    mode=None,
+    include_mode=False,
+):
+    """Process one request; legacy console callers still receive only text."""
+    if mode is not None:
+        if provider is not None:
+            raise ValueError("Specify either provider or legacy mode, not both.")
+        provider = "groq" if mode == "online" else "local" if mode == "offline" else mode
+    elif provider == "online":
+        provider = "groq"
+    elif provider == "offline":
+        provider = "local"
+
+    allowed = {"groq", "deepseek", "gemini", "local"}
+    if provider is not None and (not isinstance(provider, str) or provider not in allowed):
+        raise ValueError("Provider must be groq, deepseek, gemini, or local.")
+    if (include_provider or include_mode) and provider is None:
+        raise ValueError("A provider is required for web requests.")
+
+    result = _process_user_input(user_text, provider=provider)
+    if isinstance(result, tuple):
+        response, effective_provider = result
+    else:
+        response, effective_provider = result, provider or "local"
+
+    if include_mode:
+        return response, "online" if effective_provider == "groq" else "offline"
+    if include_provider:
+        return response, effective_provider
+    return response
+
+
+def _process_user_input_core(user_text, provider=None):
     """
     Process one Jarvis command.
     Used by both the console and Flask phone interface.
-    Returns a response string for the caller.
+    Returns response text for console requests, or text and effective provider
+    for web requests.
     """
 
     global pending_skill_creation
@@ -1966,7 +2116,7 @@ def process_user_input(user_text):
             metadata={"type": "greeting"}
         )
 
-        return assistant_response
+        return (assistant_response, provider or "local") if provider else assistant_response
 
     # ==================================================
     # NAME
@@ -1992,7 +2142,7 @@ def process_user_input(user_text):
                 }
             )
 
-            return assistant_response
+            return (assistant_response, provider or "local") if provider else assistant_response
 
     # ==================================================
     # PENDING SKILL NAME
@@ -2028,7 +2178,7 @@ def process_user_input(user_text):
                 }
             )
 
-            return assistant_response
+            return (assistant_response, provider or "local") if provider else assistant_response
 
     # ==================================================
     # SKILL CREATION
@@ -2114,7 +2264,7 @@ def process_user_input(user_text):
                 metadata=command_metadata
             )
 
-            return assistant_response
+            return (assistant_response, provider or "local") if provider else assistant_response
 
     # ==================================================
     # GET RECENT CONVERSATION CONTEXT
@@ -2125,6 +2275,20 @@ def process_user_input(user_text):
             MAX_CONTEXT_TURNS
         )
     )
+
+    def get_conversation_answer():
+        if provider is None:
+            return ask_ai(
+                user_text,
+                conversation_context
+            ), None
+
+        return ask_ai_with_provider(
+            user_text,
+            conversation_context,
+            provider,
+            fallback_on_cloud_error=False,
+        )
 
     # ==================================================
     # GET LAST STRUCTURED COMMAND
@@ -2160,7 +2324,8 @@ def process_user_input(user_text):
 
     result = parse_user_intent(
         user_text,
-        conversation_context
+        conversation_context,
+        provider=provider or "local",
     )
 
     # ==================================================
@@ -2169,10 +2334,7 @@ def process_user_input(user_text):
 
     if not result:
 
-        answer = ask_ai(
-            user_text,
-            conversation_context
-        )
+        answer, effective_mode = get_conversation_answer()
 
         remember(
             user_text,
@@ -2182,6 +2344,8 @@ def process_user_input(user_text):
             }
         )
 
+        if effective_mode:
+            return answer, effective_mode
         return answer
 
     # ==================================================
@@ -2190,10 +2354,7 @@ def process_user_input(user_text):
 
     if result.get("mode") == "conversation":
 
-        answer = ask_ai(
-            user_text,
-            conversation_context
-        )
+        answer, effective_mode = get_conversation_answer()
 
         remember(
             user_text,
@@ -2203,6 +2364,8 @@ def process_user_input(user_text):
             }
         )
 
+        if effective_mode:
+            return answer, effective_mode
         return answer
 
     # ==================================================
@@ -2218,8 +2381,11 @@ def process_user_input(user_text):
 
         with redirect_stdout(output):
 
-            handled = process_actions(
-                result
+            handled, command_effective_mode = process_actions(
+                result,
+                response_mode=provider,
+                conversation_context=conversation_context,
+                fallback_on_cloud_error=False,
             )
 
         command_output = output.getvalue().strip()
@@ -2241,21 +2407,25 @@ def process_user_input(user_text):
                 metadata=command_metadata
             )
 
-            return command_output or "Command executed successfully."
+            response = command_output or "Command executed successfully."
+            if command_effective_mode:
+                return response, command_effective_mode
+            return response
 
         if command_output:
+            if command_effective_mode:
+                return command_output, command_effective_mode
             return command_output
 
+        if command_effective_mode:
+            return "Command could not be completed.", command_effective_mode
         return "Command could not be completed."
 
     # ==================================================
     # FALLBACK
     # ==================================================
 
-    answer = ask_ai(
-        user_text,
-        conversation_context
-    )
+    answer, effective_mode = get_conversation_answer()
 
     remember(
         user_text,
@@ -2265,7 +2435,32 @@ def process_user_input(user_text):
         }
     )
 
+    if effective_mode:
+        return answer, effective_mode
     return answer
+
+
+def _process_user_input(user_text, provider=None):
+    """Run a request, restarting the full operation locally after cloud errors."""
+    try:
+        return _process_user_input_core(user_text, provider=provider)
+    except (ProviderConfigurationError, ProviderRequestError) as cloud_error:
+        if provider in {None, "local"}:
+            raise
+        try:
+            local_result = _process_user_input_core(user_text, provider="local")
+        except Exception as fallback_error:
+            raise ModelRequestError(
+                f"{provider.title()} and local Qwen could not complete the request.",
+                "local",
+            ) from fallback_error
+
+        if isinstance(local_result, tuple):
+            response, _ = local_result
+        else:
+            response = local_result
+        reason = _fallback_reason(provider, cloud_error)
+        return f"{reason} I answered with local Qwen instead.\n\n{response}", "local"
 
 
 # ==================================================
